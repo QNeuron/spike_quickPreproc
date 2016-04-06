@@ -7,9 +7,7 @@ function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds ] = ge
 if ~exist('dataPath','var') || isempty(dataPath),
     dataPath = cd;
 end
-if ~exist('thresholds','var'),
-    thresholds = [];
-end
+if ~exist('thresholds','
 
 files = excludeDots(dir(dataPath));
 datFiles = {files(arrayfun(@(x)(~isempty(strfind(x.name,'.f32.dat'))),files)).name};
