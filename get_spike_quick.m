@@ -202,3 +202,118 @@ end
 
 
 end
+
+function replot(hObj,i)
+handles = guidata(hObj);
+
+steps = 1:handles.sweepLength:handles.sweepLength*(handles.nSweep+1);
+wantedPos = (handles.viewRange * handles.sr)+1;
+wantedLim = [find(steps <= wantedPos(1),1,'first') find(steps > wantedPos(2)-1,1,'first')-1];
+
+for ch = i
+%     axes(handles.hAx(ch));
+    y = cell2mat(handles.data(ch).AP(wantedLim(1):wantedLim(2))');
+%     t = 0:1/handles.sr:(length(y)-1)/handles.sr;
+    t = ((wantedLim(1)-1)*handles.sweepLength+1)/handles.sr:1/handles.sr:(wantedLim(2)*handles.sweepLength)/handles.sr;
+    rgi = t <= handles.viewRange(2) & t >= handles.viewRange(1);
+    t = t(rgi);
+    y = y(rgi);
+    plot(handles.hAx(ch),t,y);
+    hold on;
+    handles.hLines(ch) = line([handles.viewRange(1) handles.viewRange(2)],[handles.thr(ch) handles.thr(ch)],'Parent',handles.hAx(ch),'color','red');
+    hold off;
+    set(handles.hAx(ch),'ytick',[]);
+    set(handles.hAx(ch),'YLim',handles.ylim);
+    if ch ~= 32,
+        set(handles.hAx(ch),'xtick',[]);
+    end
+end
+
+guidata(hObj,handles);
+
+end
+
+function zoomCallback(hObj,event)
+
+handles = guidata(hObj);
+
+switch get(hObj,'String')
+    case 'Z in'
+%         if handles.viewRange(2) + handles.step > handles.totDur,
+%             return;
+%         end
+        handles.ylim = handles.ylim - 0.2 * handles.ylim;
+    case 'Z out'
+
+        handles.ylim = handles.ylim + 0.2 * handles.ylim;
+end
+
+for ch = 1:length(handles.hAx),
+    set(handles.hAx(ch),'YLim',handles.ylim)
+    if handles.thr(ch) > handles.ylim(1) && handles.thr(ch) < handles.ylim(2)
+        set(handles.hSlider(ch),'Min',handles.ylim(1),'Max',handles.ylim(2));
+        set(handles.hGlobSlider,'Min',handles.ylim(1),'Max',handles.ylim(2));
+    end
+end
+
+guidata(handles.hF,handles);
+
+end
+
+function rangeCallback(hObject,event)
+handles = guidata(hObject);
+
+switch get(hObject,'String')
+    case '>'
+        if handles.viewRange(2) + handles.step > handles.totDur,
+            return;
+        end
+        handles.viewRange = handles.viewRange + handles.step;
+    case '<'
+        if handles.viewRange(1) - handles.step < 0,
+            return;
+        end
+        handles.viewRange = handles.viewRange - handles.step;
+end
+guidata(handles.hF,handles);
+replot(handles.hF,1:length(handles.hAx));
+
+end
+
+function GlobSliderCallback(hObj,event)
+handles = guidata(hObj);
+step = get(hObj,'Value') - handles.GlobSlidePrevVal;
+handles.GlobSlidePrevVal = get(hObj,'Value');
+for i = 1:length(handles.hAx)
+    % slider value
+    set(handles.hSlider(i),'Value',handles.thr(i) + step); 
+end
+% handles.thr
+handles.thr = handles.thr + step;
+
+guidata(handles.hF,handles);
+
+% replot lines
+replotLine(handles.hF,1:length(handles.hAx));
+
+
+end
+
+function replotLine(hObj,i)
+handles = guidata(hObj);
+
+for ch = i
+    set(handles.hLines(ch),'YData',[handles.thr(ch) handles.thr(ch)]);
+end
+
+% guidata(hObj,handles);
+
+end
+
+function sliderCallback(hObj,event)
+handles = guidata(hObj);
+ch = find(handles.hSlider==hObj);
+handles.thr(ch) = get(hObj,'Value');
+guidata(hObj,handles);
+replotLine(hObj,ch);
+end
