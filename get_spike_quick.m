@@ -1,20 +1,40 @@
-function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds ] = get_spike_quick(dataPath,thresholds)
+function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds ] = get_spike_quick(varargin)
 % spikeMat = [absolute time, relative time, stimulus #, channel]
+
+%% Parse inputs
+p = inputParser;
+def_dataPath = cd;
+def_thresholds = [];
+def_lfpFreqLim = 500; % Hz
+def_plotDur = 5; % seconds
+
+addOptional(p,'dataPath',def_dataPath,@isstr);
+addOptional(p,'thresholds',def_thresholds,@isnumeric);
+addParameter(p,'lfpFreqLim',def_lfpFreqLim);
+addParameter(p,'plotDur',def_plotDur);
+% addParameter(p,'shape',defaultShape,...
+%     @(x) any(validatestring(x,expectedShapes)));
+
+parse(p,varargin{:});
+opt = struct;
+for i = 1:length(p.Parameters),
+    opt.(p.Parameters{i}) = p.Results.(p.Parameters{i});
+end
 
 
 %% Get data ID
+% 
+% if ~exist('dataPath','var') || isempty(dataPath),
+%     dataPath = cd;
+% end
+% if ~exist('thresholds','var'),
+%     thresholds = [];
+% end
 
-if ~exist('dataPath','var') || isempty(dataPath),
-    dataPath = cd;
-end
-if ~exist('thresholds','var'),
-    thresholds = [];
-end
-
-files = excludeDots(dir(dataPath));
+files = excludeDots(dir(opt.dataPath));
 datFiles = {files(arrayfun(@(x)(~isempty(strfind(x.name,'.f32.dat'))),files)).name};
 
-
+grid = struct; expt = struct;
 load(fullfile(dataPath,'gridInfo.mat'))
 nChannels = expt.nChannels;
 nSweep = grid.nSweepsDesired;
@@ -22,11 +42,10 @@ sr = expt.dataDeviceSampleRate;
 stimNames = grid.stimFiles;
 
 %% low pass / band pass filter definition
-lfpFreqLim = 500; % Hz
 
 filterLFP = designfilt('lowpassiir', ...        % Response type
-       'PassbandFrequency',lfpFreqLim, ...     % Frequency constraints
-       'StopbandFrequency',lfpFreqLim+150, ...
+       'PassbandFrequency',opt.lfpFreqLim, ...     % Frequency constraints
+       'StopbandFrequency',opt.lfpFreqLim+150, ...
        'PassbandRipple',4, ...          % Magnitude constraints
        'StopbandAttenuation',65, ...
        'DesignMethod','butter', ...      % Design method
@@ -34,8 +53,8 @@ filterLFP = designfilt('lowpassiir', ...        % Response type
        'SampleRate',sr);               % Sample rate
 
 filterAP = designfilt('bandpassiir', ...       % Response type
-       'StopbandFrequency1',lfpFreqLim, ...    % Frequency constraints
-       'PassbandFrequency1',lfpFreqLim+150, ...
+       'StopbandFrequency1',opt.lfpFreqLim, ...    % Frequency constraints
+       'PassbandFrequency1',opt.lfpFreqLim+150, ...
        'PassbandFrequency2',10000, ...
        'StopbandFrequency2',11000, ...
        'StopbandAttenuation1',65, ...   % Magnitude constraints
@@ -64,9 +83,10 @@ for ch = 1:nChannels,
 end
 sweepDur = length(dataS)/nChannels/sr; % seconds
 sweepLength = length(dataS)/nChannels; % points
-% nSweepNeeded = ceil(plotDur/sweepDur);
 
-for i = 2:nSweep %nSweepNeeded, % Load more seep if more are needed
+if ~isempty(opt.plotDur)
+nSweepNeeded = ceil(opt.plotDur/sweepDur);
+for i = 2:nSweepNeeded % Load a subset of the data
     dataS = f32read(fullfile(dataPath,datFiles{i}));
     
     for ch = 1:nChannels,
@@ -83,6 +103,25 @@ for i = 2:nSweep %nSweepNeeded, % Load more seep if more are needed
     
 end
 
+else
+    for i = 2:nSweep % load all the data
+        dataS = f32read(fullfile(dataPath,datFiles{i}));
+        
+        for ch = 1:nChannels,
+            dataCh = dataS(ch:nChannels:end); % de-interleave
+            LFP = filter(filterLFP,dataCh);
+            %         LFP = filtfilt(filterLFP,dataCh);
+            AP = filter(filterAP,dataCh);
+            
+            data(ch).unfiltTrace{i} = dataCh;
+            data(ch).LFP{i} = LFP;
+            data(ch).AP{i} = AP;
+        end
+        
+        
+    end
+
+end
 %% GUI block
 
 if isempty(thresholds),
@@ -120,11 +159,11 @@ if isempty(thresholds),
     handles.nSweep = nSweep;
     handles.sweepLength = sweepLength;
     
-    guidata(handles.hF,handles);
+%     guidata(handles.hF,handles);
     replot(handles.hF,1:nChannels);
     
     uiwait;
-    handles = guidata(handles.hF); % Gets the last version of handles
+%     handles = guidata(handles.hF); % Gets the last version of handles
     close(handles.hF);
     
     thresholds = handles.thr;
@@ -158,9 +197,6 @@ for ch = 1:nChannels,
         end
         % get waveforms
         
-        
-        
-    
     end
     APTraces(ch,1:nSweep) = data(ch).AP;
     LFPTraces(ch,1:nSweep) = data(ch).LFP;
@@ -169,42 +205,8 @@ end
 
 
 
-
-% Full Data loading
-% 
-% for i = 1:nSweep,
-%     dataS = f32read(fullfile(dataPath,datFiles{i}));
-%     
-%     for ch = 1:nChannels,
-%         dataCh = dataS(ch:nChannels:end); % de-interleave
-%         LFP = filter(filterLFP,dataCh);
-%     %         LFP = filtfilt(filterLFP,dataCh);
-%         AP = filter(filterAP,dataCh);
-%         
-%         data(ch).unfiltTrace{i} = dataCh;
-%         data(ch).LFP{i} = LFP;
-%         data(ch).AP{i} = AP;
-%     end
-%     
-%     
-% end
-
-
-
-
-% % 
-% lpFilt = designfilt('lowpassfir','PassbandFrequency',0.25, ...
-%          'StopbandFrequency',0.35,'PassbandRipple',0.5, ...
-%          'StopbandAttenuation',65,'DesignMethod','kaiserwin');
-% fvtool(lpFilt)
-% dataIn = rand([1000 1]); dataOut = filter(lpFilt,dataIn);
-
-
-
-end
-
 function replot(hObj,i)
-handles = guidata(hObj);
+% handles = guidata(hObj);
 
 steps = 1:handles.sweepLength:handles.sweepLength*(handles.nSweep+1);
 wantedPos = (handles.viewRange * handles.sr)+1;
@@ -229,13 +231,13 @@ for ch = i
     end
 end
 
-guidata(hObj,handles);
+% guidata(hObj,handles);
 
 end
 
 function zoomCallback(hObj,event)
 
-handles = guidata(hObj);
+% handles = guidata(hObj);
 
 switch get(hObj,'String')
     case 'Z in'
@@ -256,12 +258,12 @@ for ch = 1:length(handles.hAx),
     end
 end
 
-guidata(handles.hF,handles);
+% guidata(handles.hF,handles);
 
 end
 
 function rangeCallback(hObject,event)
-handles = guidata(hObject);
+% handles = guidata(hObject);
 
 switch get(hObject,'String')
     case '>'
@@ -275,13 +277,13 @@ switch get(hObject,'String')
         end
         handles.viewRange = handles.viewRange - handles.step;
 end
-guidata(handles.hF,handles);
+% guidata(handles.hF,handles);
 replot(handles.hF,1:length(handles.hAx));
 
 end
 
 function GlobSliderCallback(hObj,event)
-handles = guidata(hObj);
+% handles = guidata(hObj);
 step = get(hObj,'Value') - handles.GlobSlidePrevVal;
 handles.GlobSlidePrevVal = get(hObj,'Value');
 for i = 1:length(handles.hAx)
@@ -291,7 +293,7 @@ end
 % handles.thr
 handles.thr = handles.thr + step;
 
-guidata(handles.hF,handles);
+% guidata(handles.hF,handles);
 
 % replot lines
 replotLine(handles.hF,1:length(handles.hAx));
@@ -300,7 +302,7 @@ replotLine(handles.hF,1:length(handles.hAx));
 end
 
 function replotLine(hObj,i)
-handles = guidata(hObj);
+% handles = guidata(hObj);
 
 for ch = i
     set(handles.hLines(ch),'YData',[handles.thr(ch) handles.thr(ch)]);
@@ -311,9 +313,11 @@ end
 end
 
 function sliderCallback(hObj,event)
-handles = guidata(hObj);
+% handles = guidata(hObj);
 ch = find(handles.hSlider==hObj);
 handles.thr(ch) = get(hObj,'Value');
-guidata(hObj,handles);
+% guidata(hObj,handles);
 replotLine(hObj,ch);
+end
+
 end
