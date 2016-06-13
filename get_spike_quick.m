@@ -5,7 +5,7 @@ function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds, expIn
 % manually set a spike threshold and to extract the corresponding spikes.
 %
 % inputs :  All inputs are optionnal.
-%           - dataPath : directory containing the raw data
+%           - dataPath : directory containing the raw data. DEF : cd
 %           - thresholds : threshold values, if already known. This will
 %           prevent the GUI to pop up and apply the threshold to the data.
 %
@@ -102,6 +102,8 @@ filterAP = designfilt('bandpassiir', ...       % Response type
 
 %% Data loading
 data = struct;
+
+fprintf('Data loading...\n');
 
 dataS = f32read(fullfile(opt.dataPath,datFiles{1})); % Load first sweep to get sweep length
 for ch = 1:nChannels,
@@ -209,6 +211,7 @@ else
 end
 
 %% Spike extraction
+fprintf('Extracting Spikes...\n');
 mVthreshold = 0.005; % V (?)
 durThreshold = 15 * 10^-3; % msec
 waveFormBin = ceil(opt.waveFormDur*sr);
@@ -261,12 +264,12 @@ waveforms = waveforms(1:end-(5000-c),:);
 
 % Saving spikes
 if opt.save,
-    
+    fprintf('Saving...\n');
     save(fullfile(opt.dataPath,sprintf('spikes_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)) ...
         ,'spikeMat', 'stimNames', 'waveforms', 'thresholds', 'expInfo');
     
 end
-
+fprintf('Done.\n');
 
 %% GUI Subfunctions
 
@@ -295,6 +298,7 @@ end
         end
         
     end
+
 
     function zoomCallback(hObj,event)
         
