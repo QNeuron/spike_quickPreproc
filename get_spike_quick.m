@@ -10,8 +10,7 @@ function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds, expIn
 %           prevent the GUI to pop up and apply the threshold to the data.
 %
 % Name-value pair arguments :
-%           - lfpFreqLim : cutoff frequency to separate LFP from MUA (in
-%           Hz). 
+%           - lfpFreqLim : cutoff frequency to separate LFP from MUA (in Hz)
 %           - plotDur : Duration of the data you want to analyze (in
 %           seconds). Empty value will apply the function to the entire
 %           dataset.
@@ -299,6 +298,7 @@ fprintf('Done.\n');
         end
         
     end
+
 
     function zoomCallback(hObj,event)
         
