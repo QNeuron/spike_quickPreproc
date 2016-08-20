@@ -13,9 +13,10 @@ function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds, expIn
 %           - lfpFreqLim : cutoff frequency to separate LFP from MUA (in Hz)
 %           - plotDur : Duration of the data you want to analyze (in
 %           seconds). Empty value will apply the function to the entire
-%           dataset.
+%           dataset. Default: 5 sec
 %           - waveFormDur : trigged spike waveform duration (in msec). Default 10
 %           msec, centered on the local maximal trigged value.
+%           - save : save extracted spikes. Def: false
 %
 % Outputs :
 %           - spikeMat : Trigged spike information. [absolute time, relative
@@ -204,10 +205,11 @@ if isempty(opt.thresholds),
     close(handles.hF);
     
     thresholds = handles.thr;
-    
+    thresholds(thresholds==0) = NaN;
+    SelCh = handles.SelectedChannels;
 else
     thresholds = opt.thresholds;
-    
+    SelCh = find(~isnan(thresholds));
 end
 
 %% Spike extraction
@@ -215,6 +217,7 @@ fprintf('Extracting Spikes...\n');
 mVthreshold = 0.005; % V (?)
 durThreshold = 15 * 10^-3; % msec
 waveFormBin = ceil(opt.waveFormDur*sr);
+abscissa = (0:waveFormBin-1)/sr;
 
 c = 1;
 spikeMat = [];
@@ -223,7 +226,7 @@ TspikeMat = zeros(5000,4);
 Twaveforms = zeros(5000,waveFormBin);
 APTraces = zeros(nChannels,nSweepLoaded*sweepLength);
 LFPTraces = zeros(nChannels,nSweepLoaded*sweepLength);
-for ch = handles.SelectedChannels,
+for ch = SelCh,
 % for ch = 1:nChannels,
     for s = 1:length(data(1).AP), % Extract AP from the loaded set
         % trigger spikes
@@ -265,9 +268,11 @@ waveforms = waveforms(1:end-(5000-c),:);
 % Saving spikes
 if opt.save,
     fprintf('Saving...\n');
+    SpikeMatNames = {'absolute time', 'relative time', 'stimulus #', 'sweep #', 'channel'};
     save(fullfile(opt.dataPath,sprintf('spikes_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)) ...
-        ,'spikeMat', 'stimNames', 'waveforms', 'thresholds', 'expInfo');
-    
+        ,'spikeMat', 'stimNames', 'thresholds', 'expInfo','SpikeMatNames');
+    save(fullfile(opt.dataPath,sprintf('spikes_waveforms_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)) ...
+        ,'waveforms', 'expInfo', 'abscissa');
 end
 fprintf('Done.\n');
 
