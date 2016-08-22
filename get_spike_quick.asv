@@ -17,6 +17,8 @@ function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds, expIn
 %           - waveFormDur : trigged spike waveform duration (in msec). Default 10
 %           msec, centered on the local maximal trigged value.
 %           - save : save extracted spikes. Def: false
+%           - parrallel : logical. Enables parrallel computing of spike
+%           detection. Need parrallel computing toolbox. Def: false.
 %
 % Outputs :
 %           - spikeMat : Trigged spike information. [absolute time, relative
@@ -38,6 +40,7 @@ def_lfpFreqLim = 500; % Hz
 def_plotDur = 5; % seconds
 def_waveFormDur = 10 * 10^-3; % msec
 def_save = false;
+def_parrallel = false;
 
 addOptional(p,'dataPath',def_dataPath,@isstr);
 addOptional(p,'thresholds',def_thresholds,@isnumeric);
@@ -45,6 +48,7 @@ addParameter(p,'lfpFreqLim',def_lfpFreqLim,@isnumeric);
 addParameter(p,'plotDur',def_plotDur,@isnumeric);
 addParameter(p,'waveFormDur',def_waveFormDur,@isnumeric);
 addParameter(p,'save',def_save,@islogical);
+addParameter(p,'parrallel',def_parrallel,@islogical);
 
 parse(p,varargin{:}); % Parse inputs
 
@@ -99,7 +103,6 @@ filterAP = designfilt('bandpassiir', ...       % Response type
     'MatchExactly','passband', ...   % Design method options
     'SampleRate',sr);               % Sample rate
 % fvtool(filterLFP);
-
 
 %% Data loading
 data = struct;
@@ -233,54 +236,101 @@ waveFormBin = ceil(opt.waveFormDur*sr);
 abscissa = (0:waveFormBin-1)/sr;
 
 c = 1;
-spikeMat = [];
-waveforms = [];
-TspikeMat = zeros(5000,4);
-Twaveforms = zeros(5000,waveFormBin);
 APTraces = zeros(nChannels,nSweepLoaded*sweepLength);
 LFPTraces = zeros(nChannels,nSweepLoaded*sweepLength);
-for ch = SelCh,
-% for ch = 1:nChannels,
-    for s = 1:length(data(1).AP), % Extract AP from the loaded set
-        % trigger spikes
-        [ bin_peak_max, val_peak_max, ~, peak_abs ] = peak_detector_general(data(ch).AP{s}, 'thr', thresholds(ch));
-
-        % Discard obvious shit (too long | too strong dV | too early | too late)
-        GoodInd = (val_peak_max < mVthreshold) & (diff(peak_abs')/sr < durThreshold)' & (bin_peak_max > waveFormBin/2+1) & (bin_peak_max < (sweepLength-waveFormBin/2-1));
-        bin_peak_max = bin_peak_max(GoodInd);
-%         val_peak_max = val_peak_max(GoodInd);
-%         peak_val = peak_val(GoodInd);
-%         peak_abs = peak_abs(GoodInd,:);
-        
-        %         spikeMat, stimNames, waveforms,
-        for i = 1:length(bin_peak_max),
-            TspikeMat(c,1:5) = [(bin_peak_max(i)+(s-1)*sweepLength)/sr bin_peak_max(i)/sr grid.randomisedGrid(s) s ch];
-            ind = bin_peak_max(i)-floor(waveFormBin/2):bin_peak_max(i)+ceil(waveFormBin/2)-1;
-            Twaveforms(c,1:waveFormBin) = data(ch).AP{s}(ind);
-            c = c+1;
+if ~opt.parrallel, % Regular for loop
+    TspikeMat = zeros(5000,4);
+    Twaveforms = zeros(5000,waveFormBin);
+    for ch = SelCh,
+        % for ch = 1:nChannels,
+        for s = 1:length(data(1).AP), % Extract AP from the loaded set
+            % trigger spikes
+            [ bin_peak_max, val_peak_max, ~, peak_abs ] = peak_detector_general(data(ch).AP{s}, 'thr', thresholds(ch));
             
-            if c == 5001,
-                c = 1;
-                spikeMat = [spikeMat; TspikeMat];
-                waveforms = [waveforms; Twaveforms];
+            % Discard obvious shit (too long | too strong dV | too early | too late)
+            GoodInd = (val_peak_max < mVthreshold) & (diff(peak_abs')/sr < durThreshold)' & (bin_peak_max > waveFormBin/2+1) & (bin_peak_max < (sweepLength-waveFormBin/2-1));
+            bin_peak_max = bin_peak_max(GoodInd);
+            %         val_peak_max = val_peak_max(GoodInd);
+            %         peak_val = peak_val(GoodInd);
+            %         peak_abs = peak_abs(GoodInd,:);
+            
+            %         spikeMat, stimNames, waveforms,
+            for i = 1:length(bin_peak_max),
+                TspikeMat(c,1:5) = [(bin_peak_max(i)+(s-1)*sweepLength)/sr bin_peak_max(i)/sr grid.randomisedGrid(s) s ch];
+                ind = bin_peak_max(i)-floor(waveFormBin/2):bin_peak_max(i)+ceil(waveFormBin/2)-1;
+                Twaveforms(c,1:waveFormBin) = data(ch).AP{s}(ind);
+                c = c+1;
+                
+                if c == 5001,
+                    c = 1;
+                    spikeMat = [spikeMat; TspikeMat];
+                    waveforms = [waveforms; Twaveforms];
+                    
+                end
                 
             end
             
         end
-        
+        APTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).AP,'UniformOutput',false));
+        LFPTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).LFP,'UniformOutput',false));
     end
-    APTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).AP,'UniformOutput',false));
-    LFPTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).LFP,'UniformOutput',false));
+    
+    if c <= 5000,
+        spikeMat = TspikeMat;
+        waveforms = Twaveforms;
+    end
+    
+    % cut the zeros out
+    spikeMat = spikeMat(1:end-(5000-c+1),:);
+    waveforms = waveforms(1:end-(5000-c+1),:);
+    
+else % parfor loop
+    %     poolobj = parpool;
+    spikeMat = cell(length(SelCh),1);
+    waveforms = cell(length(SelCh),1);
+    
+    for ch = SelCh,
+        TspikeMat = cell(length(data(1).AP),1);
+        Twaveforms = cell(length(data(1).AP),1);
+        parfor s = 1:length(data(1).AP), % Extract AP from the loaded set
+            % trigger spikes
+            [ bin_peak_max, val_peak_max, ~, peak_abs ] = peak_detector_general(data(ch).AP{s}, 'thr', thresholds(ch));
+            
+            % Discard obvious shit (too long | too strong dV | too early | too late)
+            GoodInd = (val_peak_max < mVthreshold) & (diff(peak_abs')/sr < durThreshold)' & (bin_peak_max > waveFormBin/2+1) & (bin_peak_max < (sweepLength-waveFormBin/2-1));
+            bin_peak_max = bin_peak_max(GoodInd);
+            %         val_peak_max = val_peak_max(GoodInd);
+            %         peak_val = peak_val(GoodInd);
+            %         peak_abs = peak_abs(GoodInd,:);
+            
+            %         spikeMat, stimNames, waveforms,
+            for i = 1:length(bin_peak_max),
+                TspikeMat{s}(i,1:5) = [(bin_peak_max(i)+(s-1)*sweepLength)/sr bin_peak_max(i)/sr grid.randomisedGrid(s) s ch];
+                ind = bin_peak_max(i)-floor(waveFormBin/2):bin_peak_max(i)+ceil(waveFormBin/2)-1;
+                Twaveforms{s}(i,1:waveFormBin) = data(ch).AP{s}(ind);
+%                 c = c+1;
+                
+%                 if c == 5001,
+%                     c = 1;
+%                     spikeMat = [spikeMat; TspikeMat];
+%                     waveforms = [waveforms; Twaveforms];
+%                     
+%                 end
+                
+            end
+            
+        end
+        waveforms{c,1} = zeros([sum(cellfun(@(x)(size(x,1)),TspikeMat)),waveFormBin]);
+        waveforms{c,1} = cell2mat(Twaveforms);
+        spikeMat{c,1} = zeros([sum(cellfun(@(x)(size(x,1)),TspikeMat)),5]);
+        spikeMat{c,1} = cell2mat(TspikeMat);
+        c=c+1;
+        APTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).AP,'UniformOutput',false));
+        LFPTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).LFP,'UniformOutput',false));
+    end
+    spikeMat = cell2mat(spikeMat);
+    waveforms = cell2mat(waveforms);
 end
-
-if c <= 5000,
-    spikeMat = TspikeMat;
-    waveforms = Twaveforms;
-end
-
-% cut the zeros out
-spikeMat = spikeMat(1:end-(5000-c),:);
-waveforms = waveforms(1:end-(5000-c),:);
 
 % Saving spikes
 if opt.save,
