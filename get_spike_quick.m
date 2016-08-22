@@ -100,7 +100,6 @@ filterAP = designfilt('bandpassiir', ...       % Response type
     'SampleRate',sr);               % Sample rate
 % fvtool(filterLFP);
 
-
 %% Data loading
 data = struct;
 
@@ -120,10 +119,19 @@ sweepDur = length(dataS)/nChannels/sr; % seconds
 sweepLength = length(dataS)/nChannels; % points
 expInfo.sweepLength = sweepLength;
 
+
+zed = regexp(datFiles{1},'\.','split');
+SweepInd = find(strcmp(zed,'sweep'))+1;
+NSweep = length(datFiles);
+for i = 1:NSweep,
+    zed = regexp(datFiles{i},'\.','split');
+    SweepNb(i) = str2double(zed{SweepInd});
+end
+
 if ~isempty(opt.plotDur)
     nSweepNeeded = ceil(opt.plotDur/sweepDur);
     for i = 2:nSweepNeeded % Load a subset of the data
-        dataS = f32read(fullfile(opt.dataPath,datFiles{i}));
+        dataS = f32read(fullfile(opt.dataPath,datFiles{SweepNb==i}));
         
         for ch = 1:nChannels,
             dataCh = dataS(ch:nChannels:end); % de-interleave
@@ -140,7 +148,7 @@ if ~isempty(opt.plotDur)
     
 else
     for i = 2:nSweep % load all the data
-        dataS = f32read(fullfile(opt.dataPath,datFiles{i}));
+        dataS = f32read(fullfile(opt.dataPath,datFiles{SweepNb==i}));
         
         for ch = 1:nChannels,
             dataCh = dataS(ch:nChannels:end); % de-interleave
@@ -205,8 +213,12 @@ if isempty(opt.thresholds),
     close(handles.hF);
     
     thresholds = handles.thr;
-    thresholds(thresholds==0) = NaN;
     SelCh = handles.SelectedChannels;
+    thresholds(setdiff(1:nChannels,SelCh)) = NaN; % non Selected channels have a thershold set to Nan.
+    Zthr = find(thresholds==0);
+	thresholds(thresholds==0) = NaN; % Thresholds left at 0 are discarded;
+    SelCh = setdiff(SelCh,Zthr); % Channels with thresholds left at 0 are discarded;
+    
 else
     thresholds = opt.thresholds;
     SelCh = find(~isnan(thresholds));
@@ -254,16 +266,20 @@ for ch = SelCh,
             end
             
         end
-        % get waveforms
         
     end
     APTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).AP,'UniformOutput',false));
     LFPTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).LFP,'UniformOutput',false));
 end
 
+if c <= 5000,
+    spikeMat = TspikeMat;
+    waveforms = Twaveforms;
+end
+
 % cut the zeros out
-spikeMat = spikeMat(1:end-(5000-c),:);
-waveforms = waveforms(1:end-(5000-c),:);
+spikeMat = spikeMat(1:end-(5000-c+1),:);
+waveforms = waveforms(1:end-(5000-c+1),:);
 
 % Saving spikes
 if opt.save,

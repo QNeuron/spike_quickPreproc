@@ -13,10 +13,10 @@ function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds, expIn
 %           - lfpFreqLim : cutoff frequency to separate LFP from MUA (in Hz)
 %           - plotDur : Duration of the data you want to analyze (in
 %           seconds). Empty value will apply the function to the entire
-%           dataset.
+%           dataset. Default: 5 sec
 %           - waveFormDur : trigged spike waveform duration (in msec). Default 10
 %           msec, centered on the local maximal trigged value.
-%           - save : save 
+%           - save : save extracted spikes. Def: false
 %
 % Outputs :
 %           - spikeMat : Trigged spike information. [absolute time, relative
@@ -120,10 +120,19 @@ sweepDur = length(dataS)/nChannels/sr; % seconds
 sweepLength = length(dataS)/nChannels; % points
 expInfo.sweepLength = sweepLength;
 
+
+zed = regexp(datFiles{1},'\.','split');
+SweepInd = find(strcmp(zed,'sweep'))+1;
+NSweep = length(datFiles);
+for i = 1:NSweep,
+    zed = regexp(datFiles{i},'\.','split');
+    SweepNb(i) = str2double(zed{SweepInd});
+end
+
 if ~isempty(opt.plotDur)
     nSweepNeeded = ceil(opt.plotDur/sweepDur);
     for i = 2:nSweepNeeded % Load a subset of the data
-        dataS = f32read(fullfile(opt.dataPath,datFiles{i}));
+        dataS = f32read(fullfile(opt.dataPath,datFiles{SweepNb==i}));
         
         for ch = 1:nChannels,
             dataCh = dataS(ch:nChannels:end); % de-interleave
@@ -140,7 +149,7 @@ if ~isempty(opt.plotDur)
     
 else
     for i = 2:nSweep % load all the data
-        dataS = f32read(fullfile(opt.dataPath,datFiles{i}));
+        dataS = f32read(fullfile(opt.dataPath,datFiles{SweepNb==i}));
         
         for ch = 1:nChannels,
             dataCh = dataS(ch:nChannels:end); % de-interleave
@@ -205,10 +214,15 @@ if isempty(opt.thresholds),
     close(handles.hF);
     
     thresholds = handles.thr;
+    SelCh = handles.SelectedChannels;
+    thresholds(setdiff(1:nChannels,SelCh)) = NaN; % non Selected channels have a thershold set to Nan.
+    Zthr = find(thresholds==0);
+	thresholds(thresholds==0) = NaN; % Thresholds left at 0 are discarded;
+    SelCh = setdiff(SelCh,Zthr); % Channels with thresholds left at 0 are discarded;
     
 else
     thresholds = opt.thresholds;
-    
+    SelCh = find(~isnan(thresholds));
 end
 
 %% Spike extraction
@@ -225,7 +239,7 @@ TspikeMat = zeros(5000,4);
 Twaveforms = zeros(5000,waveFormBin);
 APTraces = zeros(nChannels,nSweepLoaded*sweepLength);
 LFPTraces = zeros(nChannels,nSweepLoaded*sweepLength);
-for ch = handles.SelectedChannels,
+for ch = SelCh,
 % for ch = 1:nChannels,
     for s = 1:length(data(1).AP), % Extract AP from the loaded set
         % trigger spikes
@@ -253,11 +267,15 @@ for ch = handles.SelectedChannels,
             end
             
         end
-        % get waveforms
         
     end
     APTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).AP,'UniformOutput',false));
     LFPTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).LFP,'UniformOutput',false));
+end
+
+if c <= 5000,
+    spikeMat = TspikeMat;
+    waveforms = Twaveforms;
 end
 
 % cut the zeros out
@@ -271,7 +289,7 @@ if opt.save,
     save(fullfile(opt.dataPath,sprintf('spikes_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)) ...
         ,'spikeMat', 'stimNames', 'thresholds', 'expInfo','SpikeMatNames');
     save(fullfile(opt.dataPath,sprintf('spikes_waveforms_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)) ...
-        ,'waveforms', 'expInfo', 'absissa');
+        ,'waveforms', 'expInfo', 'abscissa');
 end
 fprintf('Done.\n');
 
