@@ -17,7 +17,7 @@ function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds, expIn
 %           - waveFormDur : trigged spike waveform duration (in msec). Default 10
 %           msec, centered on the local maximal trigged value.
 %           - save : save extracted spikes. Def: false
-%           - parrallel : logical. Enables parrallel computing of spike
+%           - parallel : logical. Enables parrallel computing of spike
 %           detection. Need parrallel computing toolbox. Def: false.
 %
 % Outputs :
@@ -40,7 +40,7 @@ def_lfpFreqLim = 500; % Hz
 def_plotDur = 5; % seconds
 def_waveFormDur = 10 * 10^-3; % msec
 def_save = false;
-def_parrallel = false;
+def_parallel = false;
 
 addOptional(p,'dataPath',def_dataPath,@isstr);
 addOptional(p,'thresholds',def_thresholds,@isnumeric);
@@ -48,7 +48,7 @@ addParameter(p,'lfpFreqLim',def_lfpFreqLim,@isnumeric);
 addParameter(p,'plotDur',def_plotDur,@isnumeric);
 addParameter(p,'waveFormDur',def_waveFormDur,@isnumeric);
 addParameter(p,'save',def_save,@islogical);
-addParameter(p,'parrallel',def_parrallel,@islogical);
+addParameter(p,'parallel',def_parallel,@islogical);
 
 parse(p,varargin{:}); % Parse inputs
 
