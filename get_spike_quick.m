@@ -17,8 +17,8 @@ function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds, expIn
 %           - waveFormDur : trigged spike waveform duration (in msec). Default 10
 %           msec, centered on the local maximal trigged value.
 %           - save : save extracted spikes. Def: false
-%           - parallel : logical. Enables parrallel computing of spike
-%           detection. Need parrallel computing toolbox. Def: false.
+%           - parallel : logical. Enables parallel computing of spike
+%           detection. Need parallel computing toolbox. Def: false.
 %
 % Outputs :
 %           - spikeMat : Trigged spike information. [absolute time, relative
@@ -30,6 +30,7 @@ function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds, expIn
 %           - thresholds : spike thresholds selected by the user
 %           - expInfo : struct containing grid and expt from Benware
 %
+% TO DO : - Parfor runs out of memory. Investigate.
 
 %% Parse inputs
 p = inputParser;
@@ -57,6 +58,9 @@ for i = 1:length(p.Parameters),
     opt.(p.Parameters{i}) = p.Results.(p.Parameters{i});
 end
 
+if opt.parallel == true,
+    error('Parallel computing is not functional yet.');
+end
 
 %% Get data ID
 %
@@ -80,7 +84,7 @@ expInfo.grid = grid;
 expInfo.exp = expt;
 expInfo.dataPath = opt.dataPath;
 
-%% low pass / band pass filter definition
+%% low pass / band pass filter definition for LFP/MUA separation
 
 filterLFP = designfilt('lowpassiir', ...        % Response type
     'PassbandFrequency',opt.lfpFreqLim, ...     % Frequency constraints
@@ -236,11 +240,42 @@ waveFormBin = ceil(opt.waveFormDur*sr);
 abscissa = (0:waveFormBin-1)/sr;
 
 c = 1;
-APTraces = zeros(nChannels,nSweepLoaded*sweepLength);
-LFPTraces = zeros(nChannels,nSweepLoaded*sweepLength);
-if ~opt.parrallel, % Regular for loop
-    TspikeMat = zeros(5000,4);
+% APTraces = zeros(nChannels,nSweepLoaded*sweepLength);
+% LFPTraces = zeros(nChannels,nSweepLoaded*sweepLength);
+if ~opt.parallel, % Regular for loop
+    TspikeMat = zeros(5000,5);
     Twaveforms = zeros(5000,waveFormBin);
+    spikeMat = zeros(5000,5);
+    waveforms = zeros(5000,waveFormBin);
+    idx = [1 5000];
+    
+    % Saving spikes & waveforms
+    if opt.save,
+        %     fprintf('Saving...\n');
+        %     SpikeMatNames = {'absolute time', 'relative time', 'stimulus #', 'sweep #', 'channel'};
+        %     save(fullfile(opt.dataPath,sprintf('spikes_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)) ...
+        %         ,'spikeMat', 'stimNames', 'thresholds', 'expInfo','SpikeMatNames');
+        %     save(fullfile(opt.dataPath,sprintf('spikes_waveforms_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)) ...
+        %         ,'waveforms', 'expInfo', 'abscissa');
+        
+        fprintf('Data will be saved.\n')
+        SpikeMatNames = {'absolute time', 'relative time', 'stimulus #', 'sweep #', 'channel'};
+%         save(fullfile(opt.dataPath,sprintf('spikes_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)) ...
+%             ,'spikeMat', 'stimNames', 'thresholds', 'expInfo','SpikeMatNames','-v7.3');
+%         save(fullfile(opt.dataPath,sprintf('spikes_waveforms_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)) ...
+%             ,'waveforms', 'expInfo', 'abscissa','-v7.3');
+        spikePointer = matfile(fullfile(opt.dataPath,sprintf('spikes_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)),'writable',true);
+        spikePointer.spikeMat = spikeMat;
+        spikePointer.stimNames = stimNames;
+        spikePointer.thresholds = thresholds;
+        spikePointer.expInfo = expInfo;
+        spikePointer.SpikeMatNames = SpikeMatNames;
+        waveformPointer = matfile(fullfile(opt.dataPath,sprintf('spikes_waveforms_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)),'writable',true);
+        waveformPointer.waveforms = waveforms;
+        waveformPointer.expInfo = expInfo;
+        waveformPointer.abscissa = abscissa;
+    end
+    
     for ch = SelCh,
         % for ch = 1:nChannels,
         for s = 1:length(data(1).AP), % Extract AP from the loaded set
@@ -263,26 +298,37 @@ if ~opt.parrallel, % Regular for loop
                 
                 if c == 5001,
                     c = 1;
-                    spikeMat = [spikeMat; TspikeMat];
-                    waveforms = [waveforms; Twaveforms];
+                    
+%                     spikeMat = [spikeMat; TspikeMat];
+%                     waveforms = [waveforms; Twaveforms];
+                      spikePointer.spikeMat(idx(1):idx(end),:) = TspikeMat;
+                      waveformsPointer.waveform(idx(1):idx(end),:) = Twaveforms;
+                      TspikeMat = zeros(5000,5);
+                      Twaveforms = zeros(5000,waveFormBin);
+                      idx = idx+5000;
                     
                 end
                 
             end
             
         end
-        APTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).AP,'UniformOutput',false));
-        LFPTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).LFP,'UniformOutput',false));
+%         APTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).AP,'UniformOutput',false));
+%         LFPTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).LFP,'UniformOutput',false));
     end
     
     if c <= 5000,
-        spikeMat = TspikeMat;
-        waveforms = Twaveforms;
+%         spikeMat = TspikeMat;
+%         waveforms = Twaveforms;
+        spikePointer.spikeMat(idx(1):idx(end),:) = TspikeMat;
+        waveformsPointer.waveform(idx(1):idx(end),:) = Twaveforms;
     end
     
     % cut the zeros out
-    spikeMat = spikeMat(1:end-(5000-c+1),:);
-    waveforms = waveforms(1:end-(5000-c+1),:);
+    
+%     spikeMat = spikeMat(1:end-(5000-c+1),:);
+%     waveforms = waveforms(1:end-(5000-c+1),:);
+    spikePointer.spikeMat = spikePointer.spikeMat(1:end-(5000-c+1),:);
+    waveformsPointer.waveform = waveformsPointer.waveform(1:end-(5000-c+1),:);
     
 else % parfor loop
     %     poolobj = parpool;
@@ -313,22 +359,13 @@ else % parfor loop
         spikeMat{c,1} = zeros([sum(cellfun(@(x)(size(x,1)),TspikeMat)),5]);
         spikeMat{c,1} = cell2mat(TspikeMat);
         c=c+1;
-        APTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).AP,'UniformOutput',false));
-        LFPTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).LFP,'UniformOutput',false));
+%         APTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).AP,'UniformOutput',false));
+%         LFPTraces(ch,1:nSweepLoaded*sweepLength) = cell2mat(cellfun(@(x)(x'),data(ch).LFP,'UniformOutput',false));
     end
     spikeMat = cell2mat(spikeMat);
     waveforms = cell2mat(waveforms);
 end
 
-% Saving spikes
-if opt.save,
-    fprintf('Saving...\n');
-    SpikeMatNames = {'absolute time', 'relative time', 'stimulus #', 'sweep #', 'channel'};
-    save(fullfile(opt.dataPath,sprintf('spikes_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)) ...
-        ,'spikeMat', 'stimNames', 'thresholds', 'expInfo','SpikeMatNames');
-    save(fullfile(opt.dataPath,sprintf('spikes_waveforms_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)) ...
-        ,'waveforms', 'expInfo', 'abscissa');
-end
 fprintf('Done.\n');
 
 %% GUI Subfunctions
