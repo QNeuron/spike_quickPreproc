@@ -19,6 +19,7 @@ function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds, expIn
 %           - save : save extracted spikes. Def: false
 %           - parallel : logical. Enables parallel computing of spike
 %           detection. Need parallel computing toolbox. Def: false.
+%           - savePath : str. where the data will be saved. Def : dataPath.
 %
 % Outputs :
 %           - spikeMat : Trigged spike information. [absolute time, relative
@@ -30,7 +31,7 @@ function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds, expIn
 %           - thresholds : spike thresholds selected by the user
 %           - expInfo : struct containing grid and expt from Benware
 %
-% TO DO : - Parfor runs out of memory. Investigate.
+% TO DO : - Parfor option runs out of memory. Investigate.
 
 %% Parse inputs
 p = inputParser;
@@ -42,6 +43,7 @@ def_plotDur = 5; % seconds
 def_waveFormDur = 10 * 10^-3; % msec
 def_save = false;
 def_parallel = false;
+def_savePath = 1;
 
 addOptional(p,'dataPath',def_dataPath,@isstr);
 addOptional(p,'thresholds',def_thresholds,@isnumeric);
@@ -50,6 +52,7 @@ addParameter(p,'plotDur',def_plotDur,@isnumeric);
 addParameter(p,'waveFormDur',def_waveFormDur,@isnumeric);
 addParameter(p,'save',def_save,@islogical);
 addParameter(p,'parallel',def_parallel,@islogical);
+addParameter(p,'savePath',def_savePath,@isstr);
 
 parse(p,varargin{:}); % Parse inputs
 
@@ -58,6 +61,13 @@ for i = 1:length(p.Parameters),
     opt.(p.Parameters{i}) = p.Results.(p.Parameters{i});
 end
 
+if isnumeric(opt.savePath),
+    opt.savePath = opt.dataPath;
+end
+
+if opt.parallel == true,
+    error('Parallel computing is not functional yet.');
+end
 
 %% Get data ID
 %
@@ -76,7 +86,11 @@ load(fullfile(opt.dataPath,'gridInfo.mat'))
 nChannels = expt.nChannels;
 nSweep = grid.nSweepsDesired;
 sr = expt.dataDeviceSampleRate;
+if isfield(grid,'stimFiles'),
 stimNames = grid.stimFiles;
+else
+    stimNames = grid.stimGrid;
+end
 expInfo.grid = grid;
 expInfo.exp = expt;
 expInfo.dataPath = opt.dataPath;
@@ -133,6 +147,10 @@ for i = 1:NSweep,
     SweepNb(i) = str2double(zed{SweepInd});
 end
 
+if nSweep ~= NSweep,
+    warning('The recording session has been interrupted.')
+end
+
 if ~isempty(opt.plotDur)
     nSweepNeeded = ceil(opt.plotDur/sweepDur);
     for i = 2:nSweepNeeded % Load a subset of the data
@@ -152,7 +170,7 @@ if ~isempty(opt.plotDur)
     end
     
 else
-    for i = 2:nSweep % load all the data
+    for i = 2:NSweep % load all the data
         dataS = f32read(fullfile(opt.dataPath,datFiles{SweepNb==i}));
         
         for ch = 1:nChannels,
@@ -261,13 +279,13 @@ if ~opt.parallel, % Regular for loop
 %             ,'spikeMat', 'stimNames', 'thresholds', 'expInfo','SpikeMatNames','-v7.3');
 %         save(fullfile(opt.dataPath,sprintf('spikes_waveforms_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)) ...
 %             ,'waveforms', 'expInfo', 'abscissa','-v7.3');
-        spikePointer = matfile(fullfile(opt.dataPath,sprintf('spikes_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)),'writable',true);
+        spikePointer = matfile(fullfile(opt.savePath,sprintf('spikes_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.saveName)),'writable',true);
         spikePointer.spikeMat = spikeMat;
         spikePointer.stimNames = stimNames;
         spikePointer.thresholds = thresholds;
         spikePointer.expInfo = expInfo;
         spikePointer.SpikeMatNames = SpikeMatNames;
-        waveformPointer = matfile(fullfile(opt.dataPath,sprintf('spikes_waveforms_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.name)),'writable',true);
+        waveformPointer = matfile(fullfile(opt.savePath,sprintf('spikes_waveforms_%s_P%d_N%d_%s',expInfo.exp.userName,expInfo.exp.penetrationNum,expInfo.exp.exptNum,expInfo.grid.saveName)),'writable',true);
         waveformPointer.waveforms = waveforms;
         waveformPointer.expInfo = expInfo;
         waveformPointer.abscissa = abscissa;
@@ -299,7 +317,7 @@ if ~opt.parallel, % Regular for loop
 %                     spikeMat = [spikeMat; TspikeMat];
 %                     waveforms = [waveforms; Twaveforms];
                       spikePointer.spikeMat(idx(1):idx(end),:) = TspikeMat;
-                      waveformsPointer.waveform(idx(1):idx(end),:) = Twaveforms;
+                      waveformPointer.waveforms(idx(1):idx(end),:) = Twaveforms;
                       TspikeMat = zeros(5000,5);
                       Twaveforms = zeros(5000,waveFormBin);
                       idx = idx+5000;
@@ -317,7 +335,7 @@ if ~opt.parallel, % Regular for loop
 %         spikeMat = TspikeMat;
 %         waveforms = Twaveforms;
         spikePointer.spikeMat(idx(1):idx(end),:) = TspikeMat;
-        waveformsPointer.waveform(idx(1):idx(end),:) = Twaveforms;
+        waveformPointer.waveforms(idx(1):idx(end),:) = Twaveforms;
     end
     
     % cut the zeros out
@@ -325,11 +343,10 @@ if ~opt.parallel, % Regular for loop
 %     spikeMat = spikeMat(1:end-(5000-c+1),:);
 %     waveforms = waveforms(1:end-(5000-c+1),:);
     spikePointer.spikeMat = spikePointer.spikeMat(1:end-(5000-c+1),:);
-    waveformsPointer.waveform = waveformsPointer.waveform(1:end-(5000-c+1),:);
+    waveformPointer.waveforms = waveformPointer.waveforms(1:end-(5000-c+1),:);
     
 else % parfor loop
     %     poolobj = parpool;
-    error('Parallel computing is not functional yet.');
     spikeMat = cell(length(SelCh),1);
     waveforms = cell(length(SelCh),1);
     
