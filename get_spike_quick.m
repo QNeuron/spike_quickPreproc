@@ -189,6 +189,16 @@ if ~isempty(i),
     nSweepLoaded = i;
 else nSweepLoaded = 1;
 end
+
+if isempty(dataS) % If last sweep is corrupted
+    for ch = 1:nChannels,
+        data(ch).unfiltTrace = data(ch).unfiltTrace(1:end-1);
+        data(ch).LFP = data(ch).LFP(1:end-1);
+        data(ch).AP = data(ch).AP(1:end-1);
+    end
+    nSweepLoaded = nSweepLoaded - 1;
+end
+
 expInfo.nSweepLoaded = nSweepLoaded;
 
 %% GUI block
@@ -306,7 +316,7 @@ if ~opt.parallel, % Regular for loop
             
             %         spikeMat, stimNames, waveforms,
             for i = 1:length(bin_peak_max),
-                TspikeMat(c,1:5) = [(bin_peak_max(i)+(s-1)*sweepLength)/sr bin_peak_max(i)/sr grid.randomisedGrid(s) s ch];
+                TspikeMat(c,1:5) = [(bin_peak_max(i)+(s-1)*sweepLength)/sr bin_peak_max(i)/sr grid.randomisedGridSetIdx(s) s ch];
                 ind = bin_peak_max(i)-floor(waveFormBin/2):bin_peak_max(i)+ceil(waveFormBin/2)-1;
                 Twaveforms(c,1:waveFormBin) = data(ch).AP{s}(ind);
                 c = c+1;
