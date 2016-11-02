@@ -32,6 +32,8 @@ function [spikeMat, stimNames, waveforms, APTraces, LFPTraces, thresholds, expIn
 %           - expInfo : struct containing grid and expt from Benware
 %
 % TO DO : - Parfor option runs out of memory. Investigate.
+%         - sweep by sweep substraction of all responsive channels to get
+%         rid of the noise
 
 %% Parse inputs
 p = inputParser;
@@ -44,6 +46,7 @@ def_waveFormDur = 10 * 10^-3; % msec
 def_save = false;
 def_parallel = false;
 def_savePath = 1;
+def_commonAVG = true;
 
 addOptional(p,'dataPath',def_dataPath,@isstr);
 addOptional(p,'thresholds',def_thresholds,@isnumeric);
@@ -53,6 +56,7 @@ addParameter(p,'waveFormDur',def_waveFormDur,@isnumeric);
 addParameter(p,'save',def_save,@islogical);
 addParameter(p,'parallel',def_parallel,@islogical);
 addParameter(p,'savePath',def_savePath,@isstr);
+addParameter(p,'CommonAvg',def_commonAVG,@islogical);
 
 parse(p,varargin{:}); % Parse inputs
 
@@ -96,28 +100,32 @@ expInfo.exp = expt;
 expInfo.dataPath = opt.dataPath;
 
 %% low pass / band pass filter definition for LFP/MUA separation
+% 
+% filterLFP = designfilt('lowpassiir', ...        % Response type
+%     'PassbandFrequency',opt.lfpFreqLim, ...     % Frequency constraints
+%     'StopbandFrequency',opt.lfpFreqLim+150, ...
+%     'PassbandRipple',4, ...          % Magnitude constraints
+%     'StopbandAttenuation',65, ...
+%     'DesignMethod','butter', ...      % Design method
+%     'MatchExactly','passband', ...   % Design method options
+%     'SampleRate',sr);               % Sample rate
+% 
+% filterAP = designfilt('bandpassiir', ...       % Response type
+%     'StopbandFrequency1',opt.lfpFreqLim, ...    % Frequency constraints
+%     'PassbandFrequency1',opt.lfpFreqLim+150, ...
+%     'PassbandFrequency2',10000, ...
+%     'StopbandFrequency2',11000, ...
+%     'StopbandAttenuation1',65, ...   % Magnitude constraints
+%     'PassbandRipple',1, ...
+%     'StopbandAttenuation2',65, ...
+%     'DesignMethod','butter', ...      % Design method
+%     'MatchExactly','passband', ...   % Design method options
+%     'SampleRate',sr);               % Sample rate
+% fvtool(filterLFP)
 
-filterLFP = designfilt('lowpassiir', ...        % Response type
-    'PassbandFrequency',opt.lfpFreqLim, ...     % Frequency constraints
-    'StopbandFrequency',opt.lfpFreqLim+150, ...
-    'PassbandRipple',4, ...          % Magnitude constraints
-    'StopbandAttenuation',65, ...
-    'DesignMethod','butter', ...      % Design method
-    'MatchExactly','passband', ...   % Design method options
-    'SampleRate',sr);               % Sample rate
 
-filterAP = designfilt('bandpassiir', ...       % Response type
-    'StopbandFrequency1',opt.lfpFreqLim, ...    % Frequency constraints
-    'PassbandFrequency1',opt.lfpFreqLim+150, ...
-    'PassbandFrequency2',10000, ...
-    'StopbandFrequency2',11000, ...
-    'StopbandAttenuation1',65, ...   % Magnitude constraints
-    'PassbandRipple',1, ...
-    'StopbandAttenuation2',65, ...
-    'DesignMethod','butter', ...      % Design method
-    'MatchExactly','passband', ...   % Design method options
-    'SampleRate',sr);               % Sample rate
-% fvtool(filterLFP);
+    [b1, a1] = butter(3, 200/sr*2, 'high'); % MUA
+    [b2, a2] = butter(3, 200/sr*2, 'low'); % LFP
 
 %% Data loading
 data = struct;
@@ -127,8 +135,11 @@ fprintf('Data loading...\n');
 dataS = f32read(fullfile(opt.dataPath,datFiles{1})); % Load first sweep to get sweep length
 for ch = 1:nChannels,
     dataCh = dataS(ch:nChannels:end); % de-interleave
-    LFP = filter(filterLFP,dataCh);
-    AP = filter(filterAP,dataCh);
+%     LFP = filter(filterLFP,dataCh);
+%     AP = filter(filterAP,dataCh);
+    
+    LFP = filter(b2,a2,dataCh);
+    AP = filter(b1,a1,dataCh);
     
     data(ch).unfiltTrace{1} = dataCh;
     data(ch).LFP{1} = LFP;
@@ -158,8 +169,12 @@ if ~isempty(opt.plotDur)
         
         for ch = 1:nChannels,
             dataCh = dataS(ch:nChannels:end); % de-interleave
-            LFP = filter(filterLFP,dataCh);
-            AP = filter(filterAP,dataCh);
+%             LFP = filter(filterLFP,dataCh);
+%             AP = filter(filterAP,dataCh);
+            
+            
+            LFP = filter(b2,a2,dataCh);
+            AP = filter(b1,a1,dataCh);
             
             data(ch).unfiltTrace{i} = dataCh;
             data(ch).LFP{i} = LFP;
@@ -210,6 +225,12 @@ if isempty(opt.thresholds),
     % [pos]=subplot_pos(nChannels,1,edgel,edger,edgeh,edgeb,space_h,space_v);
     % pos : [left bottom width height]
     [pos]=subplot_pos(nChannels,1,0.01,0.1,0.01,0.1,0,0);
+    handles.bg = uibuttongroup(handles.hF,...
+                  'Title','Ch',...
+                  'Units','Normalized',...
+                  'Position', [0.92 0.1 0.015 0.913],...
+                  'SelectionChangedFcn',@(bg,event) bselection(bg,event));
+    k = linspace(0.96,0,length(pos));
     for i = 1:length(pos)
         handles.rnge{i} = [2*min(cell2mat(data(i).AP')) 2*max(cell2mat(data(i).AP'))];
         %     handles.ylim{ch} = [1.5*min(cell2mat(data(ch).AP')) 1.5*max(cell2mat(data(ch).AP'))];
@@ -217,6 +238,7 @@ if isempty(opt.thresholds),
         handles.hSlider(i) = uicontrol('Style','Slider','Units','Normalized','position',[0.9 pos{i}(2) 0.01 pos{i}(4)],'Callback',@sliderCallback,'Value',defThr,'Min',handles.rnge{i}(1),'Max',handles.rnge{i}(2)); %'SliderStep',[0.001 0.01],
         handles.thr(i) = defThr;
         handles.hChkBox(i) = uicontrol('Style','CheckBox','Units','Normalized','Position',[0.91 pos{i}(2) 0.01 pos{i}(4)],'Callback',@chkBoxCallback,'Value',1);
+        handles.hrdbutton(i) = uicontrol(handles.bg,'Style','radiobutton','Units','Normalized','Position',[0.15 k(i) 2.5 0.03],'UserData',i);
     end
     handles.hAx(31) = subplot(nChannels,1,31,'position',pos{31}); % Weird bug
     handles.ylim = [min(cell2mat(handles.rnge)) max(cell2mat(handles.rnge))];
@@ -226,7 +248,9 @@ if isempty(opt.thresholds),
     handles.hButtonPrev = uicontrol('Style','pushButton','Units','Normalized','Position',[0.93 0.3 0.02 0.05],'Callback',@rangeCallback,'String','<');
     handles.hButtonZIn = uicontrol('Style','pushButton','Units','Normalized','Position',[0.93 0.4 0.02 0.05],'Callback',@zoomCallback,'String','Z in');
     handles.hButtonZout = uicontrol('Style','pushButton','Units','Normalized','Position',[0.97 0.4 0.02 0.05],'Callback',@zoomCallback,'String','Z out');
-    handles.hButtonDone = uicontrol('Style','pushButton','Units','Normalized','Position',[0.95 0.2 0.02 0.05],'Callback',@(x,y)(uiresume),'String','Done');
+    handles.hButtonDone = uicontrol('Style','pushButton','Units','Normalized','Position',[0.95 0.10 0.02 0.05],'Callback',@(x,y)(uiresume),'String','Done');
+    handles.hButtonListen = uicontrol('Style','pushButton','Units','Normalized','Position',[0.95 0.25 0.02 0.05],'Callback',@listenCallback,'String','Listen Channel');
+    handles.hButtonCommonAVG = uicontrol('Style','pushButton','Units','Normalized','Position',[0.95 0.2 0.02 0.05],'Callback',@avgCalcCallback,'String','rm avg');
     
     handles.sr = sr;
     handles.data = data;
@@ -239,6 +263,11 @@ if isempty(opt.thresholds),
     handles.nSweep = nSweep;
     handles.sweepLength = sweepLength;
     handles.SelectedChannels = 1:nChannels;
+    handles.CurrentCh = 1;
+    handles.data_original = handles.data;
+%     for sw = 1:length(handles.data(1).AP)
+%            handles.commonAVG{sw} = zeros(handles.sweepLength,1);
+%     end
     
     replot(handles.hF,1:nChannels);
     
@@ -418,7 +447,6 @@ fprintf('Done.\n');
                 set(handles.hAx(ch),'xtick',[]);
             end
         end
-        
     end
 
 
@@ -499,4 +527,55 @@ fprintf('Done.\n');
                 handles.SelectedChannels = handles.SelectedChannels(handles.SelectedChannels~=ch);
         end
     end
+
+    function listenCallback(hObj, event)
+        
+        steps = 1:handles.sweepLength:handles.sweepLength*(handles.nSweep+1);
+        wantedPos = (handles.viewRange * handles.sr)+1;
+        wantedLim = [find(steps <= wantedPos(1),1,'first') find(steps > wantedPos(2)-1,1,'first')-1];
+        
+        %         for ch = handles.SelectedChannels
+        ch = handles.CurrentCh;
+        y = cell2mat(handles.data(ch).AP(wantedLim(1):wantedLim(2))');
+        t = ((wantedLim(1)-1)*handles.sweepLength+1)/handles.sr:1/handles.sr:(wantedLim(2)*handles.sweepLength)/handles.sr;
+        rgi = t <= handles.viewRange(2) & t >= handles.viewRange(1);
+        y = y(rgi);
+        sound(y./max(y),handles.sr);
+%         pause(length(y)/handles.sr);
+        
+        % plotting spectrums
+        figure(101);
+        subplot(1,2,1);
+        plot_spectro(y,handles.sr);
+        
+        subplot(1,2,2);
+        plot_fft(y,handles.sr,10000);
+        
+        
+    end
+    
+    function bselection(hObj, event)
+        
+        handles.CurrentCh = event.NewValue.UserData;
+        
+    end
+
+    function avgCalcCallback(hObj, event)
+        if opt.CommonAvg,
+            for sw = 1:length(handles.data(1).AP)
+                handles.commonAVG{sw} = zeros(handles.sweepLength,1);
+                for ch = handles.SelectedChannels,
+                    handles.commonAVG{sw} = handles.commonAVG{sw} + handles.data_original(ch).AP{sw};
+                end
+                handles.commonAVG{sw} = handles.commonAVG{sw} ./ length(handles.SelectedChannels);
+                for ch = handles.SelectedChannels,
+                    handles.data(ch).AP{sw} = handles.data(ch).AP{sw} - handles.commonAVG{sw};
+                end
+            end
+            replot(handles.hF,1:length(handles.hAx));
+        else
+            disp('Common Avg is disabled. Set CommonAvg to true.')
+        end
+    end
+
 end
